@@ -40,6 +40,11 @@ public abstract class MQTTMessage {
         public byte getMessageTypeValue() {
             return value;
         }
+
+        @Override
+        public String toString() {
+            return this.name();
+        }
     }
 
     // QoS Level
@@ -57,6 +62,11 @@ public abstract class MQTTMessage {
 
         public byte getQoSValue() {
             return value;
+        }
+
+        @Override
+        public String toString() {
+            return this.name();
         }
     }
 

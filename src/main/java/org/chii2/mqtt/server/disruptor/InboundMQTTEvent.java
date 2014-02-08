@@ -7,10 +7,14 @@ import org.chii2.mqtt.common.message.MQTTMessage;
 /**
  * Event used by Disruptor
  */
-public class MQTTEvent {
+public class InboundMQTTEvent {
 
+    // Channel Handler Context
     private ChannelHandlerContext context;
+    // MQTT Message
     private MQTTMessage mqttMessage;
+    // Mark the message is duplicated in storage
+    private boolean duplicated = false;
 
     public ChannelHandlerContext getContext() {
         return context;
@@ -28,10 +32,18 @@ public class MQTTEvent {
         this.mqttMessage = mqttMessage;
     }
 
+    public boolean isDuplicated() {
+        return duplicated;
+    }
+
+    public void setDuplicated(boolean duplicated) {
+        this.duplicated = duplicated;
+    }
+
     /**
      * Event Factory used by disruptor
      */
-    public final static EventFactory<MQTTEvent> factory = new EventFactory<MQTTEvent>() {
-        public MQTTEvent newInstance() { return new MQTTEvent(); }
+    public final static EventFactory<InboundMQTTEvent> factory = new EventFactory<InboundMQTTEvent>() {
+        public InboundMQTTEvent newInstance() { return new InboundMQTTEvent(); }
     };
 }

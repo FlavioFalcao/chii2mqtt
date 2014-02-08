@@ -32,8 +32,16 @@ public class SubscribeMessage extends MQTTMessage {
             return topicName;
         }
 
+        public void setTopicName(String topicName) {
+            this.topicName = topicName;
+        }
+
         public QoSLevel getQosLevel() {
             return qosLevel;
+        }
+
+        public void setQosLevel(QoSLevel qosLevel) {
+            this.qosLevel = qosLevel;
         }
     }
 

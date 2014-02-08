@@ -7,18 +7,18 @@ import org.chii2.mqtt.common.message.MQTTMessage;
 /**
  * MQTT Event Translator used by Disruptor
  */
-public class MQTTEventTranslator implements EventTranslator<MQTTEvent> {
+public class InboundMQTTEventTranslator implements EventTranslator<InboundMQTTEvent> {
 
     private ChannelHandlerContext context;
     private MQTTMessage message;
 
-    public MQTTEventTranslator(ChannelHandlerContext context, MQTTMessage message) {
+    public InboundMQTTEventTranslator(ChannelHandlerContext context, MQTTMessage message) {
         this.context = context;
         this.message = message;
     }
 
     @Override
-    public void translateTo(MQTTEvent event, long sequence) {
+    public void translateTo(InboundMQTTEvent event, long sequence) {
         event.setContext(context);
         event.setMQTTMessage(message);
     }

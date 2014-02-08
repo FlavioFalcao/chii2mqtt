@@ -15,15 +15,15 @@ public class InboundDisruptor {
     // Ring Buffer Size
     private static final int RING_BUFFER_SIZE = 1024;
     // Processor threads count
-    private static final int EVENT_PROCESSORS_NUM = 3;
+    private static final int EVENT_PROCESSORS_NUM = 2;
 
     private final ExecutorService executor;
-    private final Disruptor<MQTTEvent> disruptor;
+    private final Disruptor<InboundMQTTEvent> disruptor;
 
     public InboundDisruptor() {
         executor = Executors.newFixedThreadPool(EVENT_PROCESSORS_NUM);
-        disruptor = new Disruptor<>(MQTTEvent.factory, RING_BUFFER_SIZE, executor);
-        disruptor.handleEventsWith(new JournalProcessor()).then(new LogicProcessor());
+        disruptor = new Disruptor<>(InboundMQTTEvent.factory, RING_BUFFER_SIZE, executor);
+        disruptor.handleEventsWith(new InboundJournalProcessor()).then(new LogicProcessor());
     }
 
     public void start() {
@@ -35,7 +35,7 @@ public class InboundDisruptor {
         executor.shutdown();
     }
 
-    public void pushEvent(MQTTEventTranslator translator) {
+    public void pushEvent(InboundMQTTEventTranslator translator) {
         disruptor.publishEvent(translator);
     }
 }
