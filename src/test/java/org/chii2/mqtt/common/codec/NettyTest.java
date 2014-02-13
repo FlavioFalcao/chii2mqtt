@@ -5,6 +5,7 @@ import io.netty.buffer.Unpooled;
 import org.testng.annotations.Test;
 
 import java.io.UnsupportedEncodingException;
+import java.nio.ByteBuffer;
 
 /**
  * Netty Test
@@ -21,6 +22,12 @@ public class NettyTest {
         assert byteBuf.readableBytes() == 1;
         assert 127 == byteBuf.readByte();
         assert byteBuf.readableBytes() == 0;
+
+        // Test NIO ByteBuffer
+        byteBuf.resetReaderIndex();
+        ByteBuffer byteBuffer = byteBuf.nioBuffer();
+        assert byteBuffer.position() == 0;
+        assert byteBuffer.limit() == 2;
     }
 
     @Test

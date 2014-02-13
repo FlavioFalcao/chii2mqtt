@@ -12,6 +12,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.chii2.mqtt.common.codec.MQTTDecoder;
 import org.chii2.mqtt.common.codec.MQTTEncoder;
 import org.chii2.mqtt.server.disruptor.InboundDisruptor;
+import org.chii2.mqtt.server.storage.HawtDBStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,30 +21,33 @@ import org.slf4j.LoggerFactory;
  */
 public class MQTTServer {
 
+    // Configuration
+    private final MQTTServerConfiguration configuration;
+    // Storage
+    private final HawtDBStorage storage;
     // The Logger
     private final Logger logger = LoggerFactory.getLogger(MQTTServer.class);
-    // TCP/IP port 1883 is reserved with IANA for use with MQTT.
-    private final int port;
-    // TCP/IP port 8883 is reserved with IANA for use with MQTT over SSL.
-    private final int sslPort;
 
     // Disruptor
-    private final InboundDisruptor disruptor = new InboundDisruptor();
+    private InboundDisruptor disruptor;
     // Configure the Netty server.
     private final EventLoopGroup bossGroup = new NioEventLoopGroup();
     private final EventLoopGroup workerGroup = new NioEventLoopGroup();
 
-    public MQTTServer(int port, int sslPort) {
-        this.port = port;
-        this.sslPort = sslPort;
+    public MQTTServer(MQTTServerConfiguration configuration, HawtDBStorage storage) {
+        this.configuration =configuration;
+        this.storage = storage;
     }
 
     /**
      * Start the MQTT Message Server
      */
     public void start() {
+        // Using single handler and attachments to store stateful information
+        final MQTTServerHandler mqttServerHandler = new MQTTServerHandler(disruptor);
         try {
             // Init disruptor
+            disruptor = new InboundDisruptor(storage);
             disruptor.start();
             // Init Netty server
             ServerBootstrap b = new ServerBootstrap();
@@ -55,12 +59,12 @@ public class MQTTServer {
                             ch.pipeline().addLast(
                                     new MQTTEncoder(),
                                     new MQTTDecoder(),
-                                    new MQTTServerHandler(disruptor));
+                                    mqttServerHandler);
                         }
                     });
 
             // Start the server.
-            ChannelFuture f = b.bind(port).sync();
+            ChannelFuture f = b.bind(configuration.getPort()).sync();
             logger.info("{} has successfully started.", getServerName());
             // Server socket closed listener.
             f.channel().closeFuture().addListener(new ChannelFutureListener() {

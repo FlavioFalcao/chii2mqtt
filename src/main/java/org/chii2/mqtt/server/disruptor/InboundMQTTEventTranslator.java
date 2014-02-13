@@ -5,7 +5,7 @@ import io.netty.channel.ChannelHandlerContext;
 import org.chii2.mqtt.common.message.MQTTMessage;
 
 /**
- * MQTT Event Translator used by Disruptor
+ * MQTT Event Translator used by InboundDisruptor
  */
 public class InboundMQTTEventTranslator implements EventTranslator<InboundMQTTEvent> {
 

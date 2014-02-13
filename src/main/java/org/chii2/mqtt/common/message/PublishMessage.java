@@ -38,10 +38,7 @@ public class PublishMessage extends MQTTMessage {
         this.dupFlag = dupFlag;
         this.topicName = topicName;
         this.messageID = messageID;
-        if (content.position() != 0) {
-            content.flip();
-        }
-        this.content = content;
+        setContent(content);
         this.remainingLength = calculateRemainingLength();
     }
 
@@ -74,7 +71,17 @@ public class PublishMessage extends MQTTMessage {
         return content;
     }
 
+    /**
+     * Set Content
+     * Make sure the ByteBuffer's position and limit is correct.
+     * If the position is not 0, it will be flipped.
+     *
+     * @param content ByteBuffer Content
+     */
     public void setContent(ByteBuffer content) {
+        if (content.position() != 0) {
+            content.flip();
+        }
         this.content = content;
     }
 }

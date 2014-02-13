@@ -81,6 +81,11 @@ public class ConnectMessage extends MQTTMessage {
         return protocolVersion == PROTOCOL_VERSION;
     }
 
+    public boolean isAcceptableClientID() {
+        // The Client Identifier (Client ID) is between 1 and 23 characters long
+        return clientID != null && clientID.getBytes().length <= 23;
+    }
+
     public String getProtocolName() {
         return protocolName;
     }

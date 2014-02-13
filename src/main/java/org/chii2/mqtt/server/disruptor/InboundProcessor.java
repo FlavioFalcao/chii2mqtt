@@ -2,7 +2,10 @@ package org.chii2.mqtt.server.disruptor;
 
 import com.lmax.disruptor.EventHandler;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.Attribute;
 import org.chii2.mqtt.common.message.*;
+import org.chii2.mqtt.server.MQTTServerHandler;
+import org.chii2.mqtt.server.storage.HawtDBStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,15 +14,22 @@ import java.util.List;
 /**
  * MQTT Message Inbound Journal Processor
  */
-public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
+@SuppressWarnings("unused")
+public class InboundProcessor implements EventHandler<InboundMQTTEvent> {
     // The Logger
-    private final Logger logger = LoggerFactory.getLogger(InboundJournalProcessor.class);
+    private final Logger logger = LoggerFactory.getLogger(InboundProcessor.class);
+    // Storage
+    private HawtDBStorage storage;
+
+    public InboundProcessor(HawtDBStorage storage) {
+        this.storage = storage;
+    }
 
     @Override
     public void onEvent(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch) throws Exception {
         MQTTMessage message = event.getMQTTMessage();
         if (message instanceof ConnectMessage) {
-            //
+            onConnect(event, sequenceNumber, endOfBatch);
         } else if (message instanceof PublishMessage) {
             onPublish(event, sequenceNumber, endOfBatch);
         } else if (message instanceof PubAckMessage) {
@@ -33,6 +43,53 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
         } else if (message instanceof UnsubscribeMessage) {
             onUnsubscribe(event, sequenceNumber, endOfBatch);
         }
+    }
+
+    /**
+     * Received MQTT CONNECT Message from a client
+     *
+     * @param event          InboundMQTTEvent which contains a CONNECT Message
+     * @param sequenceNumber Disruptor sequence number
+     * @param endOfBatch     Disruptor is end of batch
+     */
+    protected void onConnect(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch) {
+        ConnectMessage connectMessage = (ConnectMessage) event.getMQTTMessage();
+        ConnAckMessage connAckMessage;
+        // Unacceptable Protocol Version
+        if (!connectMessage.isAcceptableProtocolVersion()) {
+            connAckMessage = new ConnAckMessage(ConnAckMessage.ReturnCode.UNACCEPTABLE_PROTOCOL_VERSION);
+        }
+        // Unacceptable Client ID
+        else if (connectMessage.getClientID() == null || connectMessage.getClientID().getBytes().length > 23) {
+            connAckMessage = new ConnAckMessage(ConnAckMessage.ReturnCode.IDENTIFIER_REJECTED);
+        }
+        // User Name and Password Provided
+        else if (connectMessage.isUserNameFlag()) {
+            // Authorized
+            if (isAuthorized(connectMessage.getClientID(), connectMessage.getUserName(), connectMessage.getPassword())) {
+                if (connectMessage.isCleanSession()) {
+                    // TODO: Handle Clean Session
+                }
+
+                if (connectMessage.isWillFlag()) {
+                    // TODO: Handle Will
+                }
+
+                // TODO: Keep Alive Timer
+
+                connAckMessage = new ConnAckMessage(ConnAckMessage.ReturnCode.CONNECTION_ACCEPTED);
+            }
+            // Not Authorized
+            else {
+                connAckMessage = new ConnAckMessage(ConnAckMessage.ReturnCode.BAD_USERNAME_OR_PASSWORD);
+            }
+        } else {
+            connAckMessage = new ConnAckMessage(ConnAckMessage.ReturnCode.NOT_AUTHORIZED);
+        }
+    }
+
+    private boolean isAuthorized(String clientID, String userName, String password) {
+        return true;
     }
 
     /**
@@ -56,6 +113,9 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
      * @param endOfBatch     Disruptor is end of batch
      */
     protected void onPublish(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch) {
+        ChannelHandlerContext context = event.getContext();
+        Attribute<String> attr = context.attr(MQTTServerHandler.CLIENT_ID);
+        String clientID = attr.get();
         PublishMessage publishMessage = (PublishMessage) event.getMQTTMessage();
         MQTTMessage.QoSLevel qos = publishMessage.getQosLevel();
         // Retain flag is only used on PUBLISH messages. When a client sends a PUBLISH to a
@@ -73,16 +133,19 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
         // A server may delete a retained message if it receives a message with a zero-length
         // payload and the Retain flag set on the same topic.
         if (publishMessage.isRetain()) {
-            // TODO: Save the message to persistent storage as retain message
+            // Save the message to persistent storage as retain message
+            storage.putRetain(clientID, publishMessage);
         }
 
         if (publishMessage.isDupFlag()) {
-            // TODO: Check if the MessageID already published to subscribers, if was mark the event as duplicated
-            // TODO: If Message is QoS 2, and MessageID already in storage, also mark the event as duplicated
-            // event.setDuplicated(true);
+            // Mark the event as duplicated if this message already in storage
+            if (storage.containPublish(clientID, publishMessage)) {
+                event.setDuplicated(true);
+            }
         }
         if (!event.isDuplicated() && (qos == MQTTMessage.QoSLevel.LEAST_ONCE || qos == MQTTMessage.QoSLevel.EXACTLY_ONCE)) {
-            // TODO: Save the message to persistent storage
+            // Save the message to persistent storage
+            storage.putPublish(clientID, publishMessage);
         }
     }
 
@@ -96,8 +159,12 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
      * @param endOfBatch     Disruptor is end of batch
      */
     protected void onPubAck(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch) {
+        ChannelHandlerContext context = event.getContext();
+        Attribute<String> attr = context.attr(MQTTServerHandler.CLIENT_ID);
+        String clientID = attr.get();
         PubAckMessage pubAckMessage = (PubAckMessage) event.getMQTTMessage();
-        // TODO: Mark the ClientID has received MessageID in persistent storage
+        // Mark the ClientID has received MessageID in persistent storage
+        storage.removeClient(clientID, pubAckMessage.getMessageID());
     }
 
     /**
@@ -115,11 +182,20 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
      * @param endOfBatch     Disruptor is end of batch
      */
     protected void onPubRel(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch) {
+        ChannelHandlerContext context = event.getContext();
+        Attribute<String> attr = context.attr(MQTTServerHandler.CLIENT_ID);
+        String clientID = attr.get();
         PubRelMessage pubRelMessage = (PubRelMessage) event.getMQTTMessage();
         // Publisher send duplicated PUBREL Message, because it didn't received PUBCOMP Message from Server
         if (pubRelMessage.isDupFlag()) {
-            // TODO: Check if the MessageID already published to subscribers, if was mark the event as duplicated
-            // event.setDuplicated(true);
+            // Mark the event as duplicated if this message already in storage
+            if (storage.containPubRel(clientID, pubRelMessage.getMessageID())) {
+                event.setDuplicated(true);
+            }
+        }
+        if (!event.isDuplicated()) {
+            // Save the message to persistent storage
+            storage.putPubRel(clientID, pubRelMessage);
         }
     }
 
@@ -135,8 +211,12 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
      * @param endOfBatch     Disruptor is end of batch
      */
     protected void onPubComp(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch) {
+        ChannelHandlerContext context = event.getContext();
+        Attribute<String> attr = context.attr(MQTTServerHandler.CLIENT_ID);
+        String clientID = attr.get();
         PubCompMessage pubCompMessage = (PubCompMessage) event.getMQTTMessage();
-        // TODO: Mark the ClientID has received MessageID in persistent storage
+        // Mark the ClientID has received MessageID in persistent storage
+        storage.removeClient(clientID, pubCompMessage.getMessageID());
     }
 
     /**
@@ -159,19 +239,23 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
      */
     protected void onSubscribe(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch){
         ChannelHandlerContext context = event.getContext();
+        Attribute<String> attr = context.attr(MQTTServerHandler.CLIENT_ID);
+        String clientID = attr.get();
         SubscribeMessage subscribeMessage = (SubscribeMessage) event.getMQTTMessage();
         List<SubscribeMessage.Topic> topics = subscribeMessage.getTopics();
         if (subscribeMessage.isDupFlag()) {
-            // TODO: Check if the ClientID already subscribed these Topic
-            // TODO: If all topics are duplicated, mark the event duplicated
-            // event.setDuplicated(true);
+            // If all topics were subscribed by this client, mark the event duplicated
+            if (storage.containSubscribe(clientID, subscribeMessage)) {
+                event.setDuplicated(true);
+            }
         }
         // Change the QoS Level based on Server side logic
         for (SubscribeMessage.Topic topic : topics) {
             topic.setQosLevel(getGrantedQoS(context, topic.getTopicName(), topic.getQosLevel()));
         }
         if (!event.isDuplicated()) {
-            // TODO: Save the ClientID to subscription persistent storage with given Topics
+            // Save the ClientID to subscription persistent storage with given Topics
+            storage.putSubscribe(clientID, subscribeMessage);
         }
     }
 
@@ -185,9 +269,11 @@ public class InboundJournalProcessor implements EventHandler<InboundMQTTEvent> {
      * @param endOfBatch     Disruptor is end of batch
      */
     protected void onUnsubscribe(InboundMQTTEvent event, long sequenceNumber, boolean endOfBatch){
+        ChannelHandlerContext context = event.getContext();
+        Attribute<String> attr = context.attr(MQTTServerHandler.CLIENT_ID);
+        String clientID = attr.get();
         UnsubscribeMessage unsubscribeMessage = (UnsubscribeMessage) event.getMQTTMessage();
-        List<String> topicNames = unsubscribeMessage.getTopicNames();
-        // TODO: Try to unsubscribe the ClientID from the Topics in storage
+        storage.removeSubscribe(clientID, unsubscribeMessage);
     }
 
     /**

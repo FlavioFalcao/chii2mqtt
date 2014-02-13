@@ -5,6 +5,7 @@ import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
 import io.netty.channel.ChannelHandlerContext;
 import org.chii2.mqtt.common.message.*;
+import org.chii2.mqtt.server.storage.HawtDBStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
